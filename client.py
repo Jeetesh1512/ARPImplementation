@@ -1,6 +1,7 @@
 import socket
 import threading
 from getmac import get_mac_address
+import queue
 
 
 def get_ip_and_mac():
@@ -16,18 +17,27 @@ def get_ip_and_mac():
     return ip_address, mac_address
 
 
-def listen_for_notifications(sock):
+def listen_for_notifications(sock, notification_queue):
     """Thread to listen for incoming notifications from the server."""
     while True:
         try:
             data = sock.recv(1024).decode('utf-8')
             if data.startswith("PINGED"):
-                source_ip, source_mac = data.split('|')[1:]
-                print(f"\n[Notification] You have been pinged by IP={source_ip}, MAC={source_mac}")
-                print("Re-enter your choice: ", end="", flush=True)  # Prompt user again
+                notification_queue.put(data)  # Add notifications to the queue
         except Exception as e:
-            print(f"Disconnected from server: {e}")
+            notification_queue.put(f"ERROR|{e}")
             break
+
+
+def display_notifications(notification_queue):
+    """Display any queued notifications without interrupting user input."""
+    while not notification_queue.empty():
+        data = notification_queue.get()
+        if data.startswith("PINGED"):
+            source_ip, source_mac = data.split('|')[1:]
+            print(f"\n[Notification] You have been pinged by IP={source_ip}, MAC={source_mac}")
+        elif data.startswith("ERROR"):
+            print(f"\n[Error] {data.split('|')[1]}")
 
 
 def main():
@@ -44,11 +54,18 @@ def main():
     response = client_socket.recv(1024).decode('utf-8')
     print(f"Registration Status: {response}")
 
+    # Queue for notifications
+    notification_queue = queue.Queue()
+
     # Start a thread to listen for notifications
-    threading.Thread(target=listen_for_notifications, args=(client_socket,), daemon=True).start()
+    threading.Thread(target=listen_for_notifications, args=(client_socket, notification_queue), daemon=True).start()
 
     try:
         while True:
+            # Display any notifications before showing the menu
+            display_notifications(notification_queue)
+
+            # User menu
             print("\nOptions:")
             print("1. Ping another client")
             print("2. Show ARP Table")
@@ -82,6 +99,7 @@ def main():
 
             else:
                 print("Invalid choice. Try again.")
+
     finally:
         client_socket.close()
 
