@@ -1,23 +1,90 @@
 import socket
+import threading
+from getmac import get_mac_address
 
-SERVER_IP = '127.0.0.1'
-SERVER_PORT = 1234
-ARP_TABLE = {}
 
-print("Initial ARP Table:", ARP_TABLE)
+def get_ip_and_mac():
+    """Retrieve the local IP address and MAC address of the device."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ip_address = s.getsockname()[0]
+    except Exception:
+        ip_address = "127.0.0.1"
 
-while True:
-    ip = input("Enter IP to ARP for: ")
+    mac_address = get_mac_address()
+    return ip_address, mac_address
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((SERVER_IP, SERVER_PORT))
-        s.sendall(ip.encode('utf-8'))
-        mac = s.recv(1024).decode('utf-8')
-        mac = None if mac == 'Not Found' else mac
 
-    if mac:
-        ARP_TABLE[ip] = mac
-        print(f"Received ARP reply: {ip} is at {mac}")
-    else:
-        print(f"No ARP Reply for {ip}")
-    print("Current ARP Table:", ARP_TABLE)
+def listen_for_notifications(sock):
+    """Thread to listen for incoming notifications from the server."""
+    while True:
+        try:
+            data = sock.recv(1024).decode('utf-8')
+            if data.startswith("PINGED"):
+                source_ip, source_mac = data.split('|')[1:]
+                print(f"\n[Notification] You have been pinged by IP={source_ip}, MAC={source_mac}")
+                print("Re-enter your choice: ", end="", flush=True)  # Prompt user again
+        except Exception as e:
+            print(f"Disconnected from server: {e}")
+            break
+
+
+def main():
+    server_ip = '192.168.29.13'  # Change to your server's IP
+    server_port = 12345
+
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect((server_ip, server_port))
+
+    # Automatically register IP and MAC address
+    ip_address, mac_address = get_ip_and_mac()
+    message = f"REGISTER|{ip_address}|{mac_address}"
+    client_socket.send(message.encode('utf-8'))
+    response = client_socket.recv(1024).decode('utf-8')
+    print(f"Registration Status: {response}")
+
+    # Start a thread to listen for notifications
+    threading.Thread(target=listen_for_notifications, args=(client_socket,), daemon=True).start()
+
+    try:
+        while True:
+            print("\nOptions:")
+            print("1. Ping another client")
+            print("2. Show ARP Table")
+            print("3. Exit")
+            choice = input("Enter your choice: ").strip()
+
+            if choice == "1":
+                target_ip = input("Enter target IP address: ").strip()
+                if not target_ip:
+                    print("Target IP address is required.")
+                    continue
+                message = f"PING|{ip_address}|{mac_address}|{target_ip}"
+                client_socket.send(message.encode('utf-8'))
+                response = client_socket.recv(1024).decode('utf-8')
+                if response.startswith("PING_SUCCESS"):
+                    _, target_ip, target_mac = response.split('|')
+                    print(f"Ping successful! Target IP: {target_ip}, MAC: {target_mac}")
+                elif response.startswith("PING_FAILURE"):
+                    print(f"Ping failed: {response.split('|')[1]}")
+                else:
+                    print("Unexpected response: " + response)
+
+            elif choice == "2":
+                client_socket.send("ARP_TABLE|".encode('utf-8'))
+                response = client_socket.recv(1024).decode('utf-8')
+                print("ARP Table:\n" + response)
+
+            elif choice == "3":
+                print("Exiting.")
+                break
+
+            else:
+                print("Invalid choice. Try again.")
+    finally:
+        client_socket.close()
+
+
+if __name__ == "__main__":
+    main()
