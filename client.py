@@ -17,6 +17,12 @@ def get_ip_and_mac():
     return ip_address, mac_address
 
 
+# def get_ip_and_mac():
+#     # Specify the client IP manually for testing
+#     ip_address = "192.168.1.101"  # Change this for each client instance
+#     mac_address = "02:00:00:00:00:01"  # Placeholder MAC for testing
+#     return ip_address, mac_address
+
 def listen_for_notifications(sock, notification_queue):
     """Thread to listen for incoming notifications from the server."""
     while True:
